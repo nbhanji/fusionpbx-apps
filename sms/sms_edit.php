@@ -110,7 +110,7 @@ else {
 			$prep_statement->execute(array(':sms_destination_uuid' => $sms_destination_uuid, ':carrier' => $carrier,
 				'domain_uuid' => $_SESSION['domain_uuid'], ':destination' => $destination, ':enabled' => $enabled,
 				':description' => $description, ':chatplan_detail_data' => $chatplan_detail_data, ':email' => $email));
-			$prep_statement->execute();
+			// $prep_statement->execute(); // i think it is mistakenly here twice
 			unset ($prep_statement);
 
 			header( 'Location: sms.php') ;

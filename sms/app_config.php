@@ -161,9 +161,17 @@
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = 'sms';
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = 'bandwidth_api_url';
 		$apps[$x]['default_settings'][$y]['default_setting_name'] = 'text';
-		$apps[$x]['default_settings'][$y]['default_setting_value'] = 'https://api.catapult.inetwork.com/v1/users/{userId}/messages';
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = 'https://messaging.bandwidth.com/api/v2/users/{accountId}/messages';
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = 'false';
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = '';
+		$y++;
+		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = 'b3e0e3b4-9c1d-4b5a-a3b2-1f5f4edabc01';
+		$apps[$x]['default_settings'][$y]['default_setting_category'] = 'sms';
+		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = 'bandwidth_application_id';
+		$apps[$x]['default_settings'][$y]['default_setting_name'] = 'text';
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = 'YOUR_APPLICATION_ID_HERE';
+		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = 'false';
+		$apps[$x]['default_settings'][$y]['default_setting_description'] = 'Bandwidth Application ID for outbound SMS/MMS.';
 		$y++;
 		$apps[$x]['default_settings'][$y]['default_setting_uuid'] = 'bed3832d-7f03-4648-955b-b00d7033be24';
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = 'sms';

@@ -10,7 +10,7 @@
         </context>   
         <context name="public">
                 <extension name="ten-digit">
-                        <condition field="to" expression="^(\d{10}.*)$">
+                        <condition field="to" expression="^(\+?\d{10,15}.*)$">
                         	    <action application="set" data="final_delivery=true"/>
                                     <action application="lua" data="app.lua sms outbound"/>
                         </condition>
@@ -31,7 +31,7 @@
 -->
                 <extension name="other">
                         <condition field="to" expression="^(.*)$">
-                                <action application="set" data="final_delivery=true"/>
+				<!-- <action application="set" data="final_delivery=true"/> -->
                                 <!-- <action application="send"/> -->
                         </condition>
                 </extension>

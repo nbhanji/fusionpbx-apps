@@ -53,14 +53,17 @@ function route_and_send_sms($from, $to, $body, $media = "")
 		// $to = intval(preg_replace('/(^[1])/','', $to));
 		$to = intval(preg_replace('/^(\+?1)/', '', $to));
 		$from = intval($from);
-		$body = preg_replace('([\'])', '\\\'', $body); // escape apostrophes
+		$isJson = json_validator($body);
+		$body = $isJson ? $body : preg_replace('([\'])', '\\\'', $body); // escape apostrophes
 		if ($debug) {
 			error_log("TO: " . print_r($to, true));
 			error_log("FROM: " . print_r($from, true));
 			error_log("BODY: " . print_r($body, true));
 		}
-		$mailbody = $body;
-		if (gettype($media) == "array") {
+
+		$mailbody =  $isJson ? json_decode($body, true)['body'] : $body;
+
+		if (gettype($media) == "array" && !$isJson) {
 			if (empty($body)) {
 				$body = "MMS message received, see email for attachment";
 			} else {
@@ -70,79 +73,27 @@ function route_and_send_sms($from, $to, $body, $media = "")
 				error_log("MMS message (media array present)");
 			}
 		}
+
 		if ($debug) {
 			error_log("BODY: " . print_r($body, true));
 		}
-		$body = preg_replace('([\n])', '<br>', $body); // escape newlines
+
+		$body = $isJson ? $body : preg_replace('([\n])', '<br>', $body); // escape newlines
+		
 		if ($debug) {
 			error_log("BODY-revised: " . print_r($body, true));
 		}
 
-		// Check for chatplan_detail in sms_destinations table
-		$sql = "select domain_name, ";
-		$sql .= "chatplan_detail_data, ";
-		$sql .= "v_sms_destinations.domain_uuid as domain_uuid ";
-		$sql .= "from v_sms_destinations, ";
-		$sql .= "v_domains ";
-		$sql .= "where v_sms_destinations.domain_uuid = v_domains.domain_uuid";
-		$sql .= " and destination like :to";
-		$sql .= " and chatplan_detail_data <> ''";
+		// Extracted logic to get SMS destination info
+		$destination_info = get_sms_destination_info($to);
 
-		if ($debug) {
-			error_log("SQL: " . print_r($sql, true));
+		if (!$destination_info) {
+			die("Invalid Destination");
 		}
+		$domain_name = $destination_info['domain_name'];
+		$domain_uuid = $destination_info['domain_uuid'];
+		$match = $destination_info['match'];
 
-		$prep_statement = $db->prepare(check_sql($sql));
-		$prep_statement->bindValue(':to', "%{$to}%");
-		$prep_statement->execute();
-		$result = $prep_statement->fetchAll(PDO::FETCH_NAMED);
-
-		if (count($result) > 0) {
-			foreach ($result as &$row) {
-				$domain_name = $row["domain_name"];
-				preg_match('/(\d{2,7})/', $row["chatplan_detail_data"], $match);
-				$domain_uuid = $row["domain_uuid"];
-				break; //limit to 1 row
-			}
-		} else { // Fall back to destinations table for backwards compatibility
-			$sql = "select domain_name, ";
-			$sql .= "dialplan_detail_data, ";
-			$sql .= "v_domains.domain_uuid as domain_uuid ";
-			$sql .= "from v_destinations, ";
-			$sql .= "v_dialplan_details, ";
-			$sql .= "v_domains ";
-			$sql .= "where v_destinations.dialplan_uuid = v_dialplan_details.dialplan_uuid ";
-			$sql .= "and v_destinations.domain_uuid = v_domains.domain_uuid";
-			$sql .= " and destination_number like :to and dialplan_detail_type = 'transfer'";
-
-			if ($debug) {
-				error_log("SQL: " . print_r($sql, true));
-			}
-
-			$prep_statement = $db->prepare(check_sql($sql));
-			$prep_statement->bindValue(':to', "%{$to}%");
-			$prep_statement->execute();
-			$result = $prep_statement->fetchAll(PDO::FETCH_NAMED);
-			if (count($result) == 0) {
-				error_log("Cannot find a destination: " . print_r($result, true));
-				die("Invalid Destination");
-			}
-			foreach ($result as &$row) {
-				$domain_name = $row["domain_name"];
-				preg_match('/(\d{2,7})/', $row["dialplan_detail_data"], $match);
-				$domain_uuid = $row["domain_uuid"];
-				break; //limit to 1 row
-			}
-		}
-		unset($prep_statement);
-
-		if ($debug) {
-			error_log("SQL: " . print_r($sql, true));
-			error_log("MATCH: " . print_r($match[0], true));
-			error_log("DOMAIN_NAME: " . print_r($domain_name, true));
-			error_log("DOMAIN_UUID: " . print_r($domain_uuid, true));
-
-		}
 		//load default and domain settings
 		$_SESSION["domain_uuid"] = $domain_uuid;
 		require_once "resources/classes/domains.php";
@@ -197,6 +148,14 @@ function route_and_send_sms($from, $to, $body, $media = "")
 	}
 }
 
+function json_validator($data)
+{
+	if (!empty($data)) {
+		@json_decode($data);
+		return (json_last_error() === JSON_ERROR_NONE);
+	}
+	return false;
+}
 
 // These are the class and functions that were in root.php and removed during change (#168). These are also needed for 
 // the sms_hook_xxx.php functions
@@ -302,7 +261,6 @@ if (!class_exists('IP4Filter')) {
 			list($net, $mask) = explode('/', $CIDR);
 			return (ip2long($IP) & ~((1 << (32 - $mask)) - 1)) == ip2long($net);
 		}
-
 	}
 }
 
@@ -327,3 +285,81 @@ function check_acl()
 	return $acl->check($_SERVER['REMOTE_ADDR'], $allowed_ips);
 }
 
+function get_sms_destination_info($to)
+{
+
+	global $db, $debug, $domain_uuid, $domain_name, $match;
+
+	$match = array();
+
+	// Check for chatplan_detail in sms_destinations table
+	$sql = "select domain_name, ";
+	$sql .= "chatplan_detail_data, ";
+	$sql .= "v_sms_destinations.domain_uuid as domain_uuid ";
+	$sql .= "from v_sms_destinations, ";
+	$sql .= "v_domains ";
+	$sql .= "where v_sms_destinations.domain_uuid = v_domains.domain_uuid";
+	$sql .= " and destination like :to";
+	$sql .= " and chatplan_detail_data <> ''";
+
+	if ($debug) {
+		error_log("SQL: " . print_r($sql, true));
+	}
+
+	$prep_statement = $db->prepare(check_sql($sql));
+	$prep_statement->bindValue(':to', "%{$to}%");
+	$prep_statement->execute();
+	$result = $prep_statement->fetchAll(PDO::FETCH_NAMED);
+
+	if (count($result) > 0) {
+		foreach ($result as &$row) {
+			$domain_name = $row["domain_name"];
+			preg_match('/(\d{2,7})/', $row["chatplan_detail_data"], $match);
+			$domain_uuid = $row["domain_uuid"];
+			break; //limit to 1 row
+		}
+	} else { // Fall back to destinations table for backwards compatibility
+		$sql = "select domain_name, ";
+		$sql .= "dialplan_detail_data, ";
+		$sql .= "v_domains.domain_uuid as domain_uuid ";
+		$sql .= "from v_destinations, ";
+		$sql .= "v_dialplan_details, ";
+		$sql .= "v_domains ";
+		$sql .= "where v_destinations.dialplan_uuid = v_dialplan_details.dialplan_uuid ";
+		$sql .= "and v_destinations.domain_uuid = v_domains.domain_uuid";
+		$sql .= " and destination_number like :to and dialplan_detail_type = 'transfer'";
+
+		if ($debug) {
+			error_log("SQL: " . print_r($sql, true));
+		}
+
+		$prep_statement = $db->prepare(check_sql($sql));
+		$prep_statement->bindValue(':to', "%{$to}%");
+		$prep_statement->execute();
+		$result = $prep_statement->fetchAll(PDO::FETCH_NAMED);
+		if (count($result) == 0) {
+			error_log("Cannot find a destination: " . print_r($result, true));
+			die("Invalid Destination");
+		}
+		foreach ($result as &$row) {
+			$domain_name = $row["domain_name"];
+			preg_match('/(\d{2,7})/', $row["dialplan_detail_data"], $match);
+			$domain_uuid = $row["domain_uuid"];
+			break; //limit to 1 row
+		}
+	}
+	unset($prep_statement);
+
+	if ($debug) {
+		error_log("SQL: " . print_r($sql, true));
+		error_log("MATCH: " . print_r($match[0], true));
+		error_log("DOMAIN_NAME: " . print_r($domain_name, true));
+		error_log("DOMAIN_UUID: " . print_r($domain_uuid, true));
+	}
+
+	return [
+		'domain_name' => $domain_name,
+		'domain_uuid' => $domain_uuid,
+		'match' => $match
+	];
+}
